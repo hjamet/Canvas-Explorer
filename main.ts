@@ -27,20 +27,23 @@ export default class NoteToCanvasPlugin extends Plugin {
 		if (!canvasFile) {
 			const newCanvasFile = await this.createCanvasFile(canvasName);
 			if (newCanvasFile !== null) {
+				const contentUntilSecondTitle = await this.getContentUntilSecondTitle(file);
+				const size = this.calculateTextSize(contentUntilSecondTitle);
+
 				const canvasData = {
 					nodes: [{
 						id: "1",
 						x: 0,
 						y: 0,
-						width: 400,
-						height: 400,
+						width: size,
+						height: size,
 						type: "file",
 						file: file.path
 					}],
 					edges: []
 				};
 				await this.app.vault.modify(newCanvasFile, JSON.stringify(canvasData));
-				canvasFile = newCanvasFile; // Assurez-vous que canvasFile est défini
+				canvasFile = newCanvasFile;
 			} else {
 				new Notice('Failed to create canvas file');
 				return;
@@ -60,11 +63,36 @@ export default class NoteToCanvasPlugin extends Plugin {
 	}
 
 	async openCanvasFile(file: TFile) {
-		const leaf = this.app.workspace.activeLeaf; // Utilisez le leaf actuel
-		if (leaf) { // Vérifiez si leaf est défini
+		const leaf = this.app.workspace.getLeaf(false); // Utilisez une méthode non dépréciée
+		if (leaf) {
 			await leaf.openFile(file);
 		} else {
 			console.error('No active leaf');
 		}
+	}
+
+	async getContentUntilSecondTitle(file: TFile): Promise<string> {
+		const content = await this.app.vault.read(file);
+		const lines = content.split('\n');
+		let result = '';
+		let titleCount = 0;
+
+		for (const line of lines) {
+			if (line.startsWith('#')) {
+				titleCount++;
+				if (titleCount === 2) {
+					break;
+				}
+			}
+			result += line + '\n';
+		}
+
+		return result.trim();
+	}
+
+	calculateTextSize(text: string): number {
+		const numberOfCharacters = text.length;
+		const size = numberOfCharacters * 0.6; // Coefficient de 0.5, ajustez selon vos besoins
+		return size;
 	}
 }
