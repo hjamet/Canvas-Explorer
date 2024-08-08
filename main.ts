@@ -22,35 +22,88 @@ export default class NoteToCanvasPlugin extends Plugin {
 		}
 
 		const canvasName = `${file.basename} Canvas.canvas`;
-		let canvasFile = this.app.vault.getAbstractFileByPath(canvasName) as TFile;
+		let canvasFile = this.app.vault.getAbstractFileByPath(canvasName) as TFile | null;
 
 		if (!canvasFile) {
-			const newCanvasFile = await this.createCanvasFile(canvasName);
-			if (newCanvasFile !== null) {
-				const contentUntilSecondTitle = await this.getContentUntilSecondTitle(file);
-				const size = this.calculateTextSize(contentUntilSecondTitle);
-
-				const canvasData = {
-					nodes: [{
-						id: "1",
-						x: 0,
-						y: 0,
-						width: size,
-						height: size,
-						type: "file",
-						file: file.path
-					}],
-					edges: []
-				};
-				await this.app.vault.modify(newCanvasFile, JSON.stringify(canvasData));
-				canvasFile = newCanvasFile;
-			} else {
+			canvasFile = await this.createCanvasFile(canvasName);
+			if (!canvasFile) {
 				new Notice('Failed to create canvas file');
 				return;
 			}
+
+			const contentUntilSecondTitle = await this.getContentUntilSecondTitle(file);
+			const size = this.calculateTextHeight(contentUntilSecondTitle);
+
+			const backlinks = this.getLinks(file, 'backlinks');
+			const forwardLinks = this.getLinks(file, 'forwardLinks');
+
+			const backNodesResult = await this.createLinkNodes(backlinks, -600, 0);
+			const forwardNodesResult = await this.createLinkNodes(forwardLinks, 600, 0);
+
+			const backNodes = backNodesResult.nodes;
+			const backTotalHeight = backNodesResult.totalHeight;
+			const forwardNodes = forwardNodesResult.nodes;
+			const forwardTotalHeight = forwardNodesResult.totalHeight;
+
+			const spacing = 50; // Espace entre les nœuds
+			const backYOffset = (backTotalHeight + (backlinks.length - 1) * spacing) / backlinks.length;
+			const forwardYOffset = (forwardTotalHeight + (forwardLinks.length - 1) * spacing) / forwardLinks.length;
+
+			backNodes.forEach((node: any, index: number) => {
+				node.y = index * backYOffset;
+			});
+
+			forwardNodes.forEach((node: any, index: number) => {
+				node.y = index * forwardYOffset;
+			});
+
+			const canvasData = {
+				nodes: [
+					this.createNode("1", 0, 0, 400, size, file.path),
+					...backNodes,
+					...forwardNodes
+				],
+				edges: this.createEdges(backlinks, forwardLinks)
+			};
+
+			await this.app.vault.modify(canvasFile, JSON.stringify(canvasData));
 		}
 
 		this.openCanvasFile(canvasFile);
+	}
+
+	getLinks(file: TFile, type: 'backlinks' | 'forwardLinks'): TFile[] {
+		if (type === 'backlinks') {
+			const resolvedLinks = this.app.metadataCache.resolvedLinks;
+			return Object.entries(resolvedLinks)
+				.filter(([_, targetLinks]) => targetLinks[file.path])
+				.map(([sourcePath]) => this.app.vault.getAbstractFileByPath(sourcePath))
+				.filter((file): file is TFile => file instanceof TFile);
+		} else {
+			const links = this.app.metadataCache.getFileCache(file)?.links || [];
+			return links.map(link => this.app.metadataCache.getFirstLinkpathDest(link.link, file.path))
+				.filter((file): file is TFile => file instanceof TFile);
+		}
+	}
+
+	async createLinkNodes(links: TFile[], baseX: number, baseY: number): Promise<{ nodes: any[], totalHeight: number }> {
+		const nodes = await Promise.all(links.map(async (link, index) => {
+			const content = await this.getContentUntilSecondTitle(link);
+			const height = this.calculateTextHeight(content);
+			return this.createNode(`link-${baseX > 0 ? 'forward' : 'back'}-${index + 2}`, baseX, baseY + index * 150, 400, height, link.path);
+		}));
+
+		const totalHeight = nodes.reduce((sum, node) => sum + node.height, 0);
+		return { nodes, totalHeight };
+	}
+
+	createEdges(backlinks: TFile[], forwardLinks: TFile[]): { id: string, fromNode: string, fromSide: string, toNode: string, toSide: string }[] {
+		const createEdge = (id: string, fromNode: string, fromSide: string, toNode: string, toSide: string) => ({ id, fromNode, fromSide, toNode, toSide });
+
+		return [
+			...backlinks.map((_, index) => createEdge(`edge-back-${index + 1}`, `link-back-${index + 2}`, "right", "1", "left")),
+			...forwardLinks.map((_, index) => createEdge(`edge-forward-${index + 1}`, "1", "right", `link-forward-${index + 2}`, "left"))
+		];
 	}
 
 	async createCanvasFile(fileName: string): Promise<TFile | null> {
@@ -63,7 +116,7 @@ export default class NoteToCanvasPlugin extends Plugin {
 	}
 
 	async openCanvasFile(file: TFile) {
-		const leaf = this.app.workspace.getLeaf(false); // Utilisez une méthode non dépréciée
+		const leaf = this.app.workspace.getLeaf(false);
 		if (leaf) {
 			await leaf.openFile(file);
 		} else {
@@ -80,9 +133,7 @@ export default class NoteToCanvasPlugin extends Plugin {
 		for (const line of lines) {
 			if (line.startsWith('#')) {
 				titleCount++;
-				if (titleCount === 2) {
-					break;
-				}
+				if (titleCount === 2) break;
 			}
 			result += line + '\n';
 		}
@@ -90,9 +141,12 @@ export default class NoteToCanvasPlugin extends Plugin {
 		return result.trim();
 	}
 
-	calculateTextSize(text: string): number {
-		const numberOfCharacters = text.length;
-		const size = numberOfCharacters * 0.6; // Coefficient de 0.5, ajustez selon vos besoins
-		return size;
+	calculateTextHeight(text: string): number {
+		const numberOfLines = text.split('\n').length;
+		return numberOfLines * 50; // Assuming 50 pixels per line
+	}
+
+	createNode(id: string, x: number, y: number, width: number, height: number, filePath: string) {
+		return { id, x, y, width, height, type: "file", file: filePath };
 	}
 }
