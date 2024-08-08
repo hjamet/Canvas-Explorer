@@ -1,11 +1,11 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "canvas-explorer",
+	"name": "Canvas Explorer",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "Allows you to explore your vault using the Canvas tool to display the inbound and outbound links of your notes.",
+	"author": "Henri Jamet",
+	"authorUrl": "https://www.henri-jamet.com/",
+	"fundingUrl": "https://www.henri-jamet.com/",
 	"isDesktopOnly": false
 }
