@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-sample-plugin",
-	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"name": "canvas-explorer",
+	"version": "1.0.6",
+	"description": "Canvas Explorer is a plugin that enables users to explore their vault by iteratively adding or ignoring linked notes, ultimately generating a customizable canvas.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
