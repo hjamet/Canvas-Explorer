@@ -1,10 +1,81 @@
-import { App, Notice, Plugin, TFile, WorkspaceLeaf, Modal, TextComponent, ButtonComponent } from 'obsidian';
+import { App, Notice, Plugin, TFile, WorkspaceLeaf, Modal, TextComponent, ButtonComponent, PluginSettingTab, Setting } from 'obsidian';
+
+interface MyPluginSettings {
+	canvasFolder: string;
+	nodeWidth: number;
+	nodeHeight: number;
+}
+
+const DEFAULT_SETTINGS: MyPluginSettings = {
+	canvasFolder: '',
+	nodeWidth: 400,
+	nodeHeight: 600
+}
+
+class MyPluginSettingTab extends PluginSettingTab {
+	plugin: MyPlugin;
+
+	constructor(app: App, plugin: MyPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+
+		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName('Dossier Canvas')
+			.setDesc('Sélectionnez le dossier où enregistrer les canvas')
+			.addText(text => text
+				.setPlaceholder('Exemple: Dossier/Sous-dossier')
+				.setValue(this.plugin.settings.canvasFolder)
+				.onChange(async (value) => {
+					this.plugin.settings.canvasFolder = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Largeur des nœuds')
+			.setDesc('Spécifiez la largeur des nœuds dans le canvas (en pixels)')
+			.addText(text => text
+				.setPlaceholder('400')
+				.setValue(String(this.plugin.settings.nodeWidth))
+				.onChange(async (value) => {
+					const numValue = Number(value);
+					if (!isNaN(numValue) && numValue > 0) {
+						this.plugin.settings.nodeWidth = numValue;
+						await this.plugin.saveSettings();
+					}
+				}));
+
+		new Setting(containerEl)
+			.setName('Hauteur des nœuds')
+			.setDesc('Spécifiez la hauteur des nœuds dans le canvas (en pixels)')
+			.addText(text => text
+				.setPlaceholder('600')
+				.setValue(String(this.plugin.settings.nodeHeight))
+				.onChange(async (value) => {
+					const numValue = Number(value);
+					if (!isNaN(numValue) && numValue > 0) {
+						this.plugin.settings.nodeHeight = numValue;
+						await this.plugin.saveSettings();
+					}
+				}));
+	}
+}
 
 export default class MyPlugin extends Plugin {
 	private stack: TFile[] = [];
 	private preservedNotes: TFile[] = [];
+	settings: MyPluginSettings;
 
 	async onload() {
+		await this.loadSettings();
+
+		this.addSettingTab(new MyPluginSettingTab(this.app, this));
+
 		this.addCommand({
 			id: 'ajouter-note',
 			name: 'Ajouter Note',
@@ -16,6 +87,14 @@ export default class MyPlugin extends Plugin {
 			name: 'Ignorer Note',
 			callback: () => this.ignoreNote(),
 		});
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
 	}
 
 	private async addNote() {
@@ -43,7 +122,6 @@ export default class MyPlugin extends Plugin {
 				}
 			}
 		}
-		// Ajouter une notice pour le nombre de notes restantes
 		new Notice(`Il reste ${this.stack.length} notes à traiter.`);
 		this.processNextNote();
 	}
@@ -101,8 +179,31 @@ export default class MyPlugin extends Plugin {
 	private async createAndDisplayCanvas(fileName: string, leaf: WorkspaceLeaf) {
 		const canvasContent = this.generateCanvasContent();
 		const fullFileName = `${fileName}.canvas`;
-		const canvasFile = await this.app.vault.create(fullFileName, canvasContent);
-		await leaf.openFile(canvasFile);
+		let filePath = fullFileName;
+
+		if (this.settings.canvasFolder) {
+			filePath = `${this.settings.canvasFolder}/${fullFileName}`;
+
+			// Vérifier si le dossier existe
+			const folderExists = await this.app.vault.adapter.exists(this.settings.canvasFolder);
+
+			// Si le dossier n'existe pas, le créer
+			if (!folderExists) {
+				try {
+					await this.app.vault.adapter.mkdir(this.settings.canvasFolder);
+				} catch (error) {
+					new Notice(`Erreur lors de la création du dossier : ${error.message}`);
+					return;
+				}
+			}
+		}
+
+		try {
+			const canvasFile = await this.app.vault.create(filePath, canvasContent);
+			await leaf.openFile(canvasFile);
+		} catch (error) {
+			new Notice(`Erreur lors de la création du canvas : ${error.message}`);
+		}
 	}
 
 	private generateCanvasContent(): string {
@@ -110,9 +211,8 @@ export default class MyPlugin extends Plugin {
 		const edges: string[] = [];
 		const noteCount = this.preservedNotes.length;
 		const columns = Math.ceil(Math.sqrt(noteCount));
-		const rows = Math.ceil(noteCount / columns);
-		const nodeWidth = 400;
-		const nodeHeight = 600;
+		const nodeWidth = this.settings.nodeWidth;
+		const nodeHeight = this.settings.nodeHeight;
 		const spacingX = 40;
 		const spacingY = 40;
 
@@ -120,21 +220,21 @@ export default class MyPlugin extends Plugin {
 			const x = (index % columns) * (nodeWidth + spacingX);
 			const y = Math.floor(index / columns) * (nodeHeight + spacingY);
 			nodes.push(`
-			{
-				"id": "node-${index}",
-				"x": ${x},
-				"y": ${y},
-				"width": ${nodeWidth},
-				"height": ${nodeHeight},
-				"type": "file",
-				"file": "${file.path}"
-			}`);
+        {
+            "id": "node-${index}",
+            "x": ${x},
+            "y": ${y},
+            "width": ${nodeWidth},
+            "height": ${nodeHeight},
+            "type": "file",
+            "file": "${file.path}"
+        }`);
 		});
 
 		return `{
-		"nodes":[${nodes.join(',')}],
-		"edges":[${edges.join(',')}]
-	}`;
+    "nodes":[${nodes.join(',')}],
+    "edges":[${edges.join(',')}]
+}`;
 	}
 
 	private resetPlugin() {
@@ -162,39 +262,44 @@ class FileNameModal extends Modal {
 
 		this.input.inputEl.addEventListener('keydown', (event: KeyboardEvent) => {
 			if (event.key === 'Enter') {
-				event.preventDefault(); // Empêche l'action par défaut de l'événement
-				event.stopPropagation(); // Empêche la propagation de l'événement
+				event.preventDefault();
+				event.stopPropagation();
 				this.submitFileName();
 			}
 		});
 
 		const buttonContainer = contentEl.createDiv();
 		buttonContainer.style.display = 'flex';
-		buttonContainer.style.justifyContent = 'space-between';
-		buttonContainer.style.marginTop = '1rem';
+		buttonContainer.style.justifyContent = 'flex-end';
+		buttonContainer.style.marginTop = '10px';
 
-		const submitButton = new ButtonComponent(buttonContainer);
-		submitButton.setButtonText('Submit').onClick(() => this.submitFileName());
+		new ButtonComponent(buttonContainer)
+			.setButtonText('Cancel')
+			.onClick(() => {
+				this.close();
+				this.resolve(null);
+			});
 
-		const cancelButton = new ButtonComponent(buttonContainer);
-		cancelButton.setButtonText('Cancel').onClick(() => {
-			this.resolve(null);
-			this.close();
-		});
-	}
-
-	private submitFileName() {
-		const fileName = this.input.getValue().trim();
-		if (fileName) {
-			this.resolve(fileName);
-			this.close();
-		} else {
-			new Notice('File name cannot be empty');
-		}
+		new ButtonComponent(buttonContainer)
+			.setButtonText('Submit')
+			.setCta()
+			.onClick(() => {
+				this.submitFileName();
+			});
 	}
 
 	onClose() {
 		const { contentEl } = this;
 		contentEl.empty();
+	}
+
+	private submitFileName() {
+		const fileName = this.input.getValue();
+		if (fileName) {
+			this.close();
+			this.resolve(fileName);
+		} else {
+			new Notice('Please enter a file name');
+		}
 	}
 }
