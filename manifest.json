@@ -1,7 +1,7 @@
 {
 	"id": "canvas-explorer",
 	"name": "Canvas Explorer",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
 	"description": "Allows you to explore your vault using the Canvas tool to display the inbound and outbound links of your notes.",
 	"author": "Henri Jamet",
