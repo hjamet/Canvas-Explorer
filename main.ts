@@ -43,6 +43,8 @@ export default class MyPlugin extends Plugin {
 				}
 			}
 		}
+		// Ajouter une notice pour le nombre de notes restantes
+		new Notice(`Il reste ${this.stack.length} notes à traiter.`);
 		this.processNextNote();
 	}
 
@@ -106,22 +108,33 @@ export default class MyPlugin extends Plugin {
 	private generateCanvasContent(): string {
 		const nodes: string[] = [];
 		const edges: string[] = [];
+		const noteCount = this.preservedNotes.length;
+		const columns = Math.ceil(Math.sqrt(noteCount));
+		const rows = Math.ceil(noteCount / columns);
+		const nodeWidth = 400;
+		const nodeHeight = 600;
+		const spacingX = 40;
+		const spacingY = 40;
+
 		this.preservedNotes.forEach((file, index) => {
+			const x = (index % columns) * (nodeWidth + spacingX);
+			const y = Math.floor(index / columns) * (nodeHeight + spacingY);
 			nodes.push(`
-				{
-					"id": "node-${index}",
-					"x": ${index * 420},
-					"y": 0,
-					"width": 400,
-					"height": 600,
-					"type": "file",
-					"file": "${file.path}"
-				}`);
+			{
+				"id": "node-${index}",
+				"x": ${x},
+				"y": ${y},
+				"width": ${nodeWidth},
+				"height": ${nodeHeight},
+				"type": "file",
+				"file": "${file.path}"
+			}`);
 		});
+
 		return `{
-			"nodes":[${nodes.join(',')}],
-			"edges":[${edges.join(',')}]
-		}`;
+		"nodes":[${nodes.join(',')}],
+		"edges":[${edges.join(',')}]
+	}`;
 	}
 
 	private resetPlugin() {
@@ -149,6 +162,8 @@ class FileNameModal extends Modal {
 
 		this.input.inputEl.addEventListener('keydown', (event: KeyboardEvent) => {
 			if (event.key === 'Enter') {
+				event.preventDefault(); // Empêche l'action par défaut de l'événement
+				event.stopPropagation(); // Empêche la propagation de l'événement
 				this.submitFileName();
 			}
 		});
