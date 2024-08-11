@@ -1,152 +1,185 @@
-import { MarkdownView, Notice, Plugin, TFile } from 'obsidian';
+import { App, Notice, Plugin, TFile, WorkspaceLeaf, Modal, TextComponent, ButtonComponent } from 'obsidian';
 
-export default class NoteToCanvasPlugin extends Plugin {
+export default class MyPlugin extends Plugin {
+	private stack: TFile[] = [];
+	private preservedNotes: TFile[] = [];
+
 	async onload() {
 		this.addCommand({
-			id: 'transform-note-to-canvas',
-			name: 'Transform Note to Canvas',
-			checkCallback: (checking: boolean) => {
-				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (activeView && activeView.file && !checking) {
-					this.transformNoteToCanvas(activeView.file);
-				}
-				return !!activeView;
-			}
+			id: 'ajouter-note',
+			name: 'Ajouter Note',
+			callback: () => this.addNote(),
+		});
+
+		this.addCommand({
+			id: 'ignorer-note',
+			name: 'Ignorer Note',
+			callback: () => this.ignoreNote(),
 		});
 	}
 
-	async transformNoteToCanvas(file: TFile) {
-		if (!file) {
-			new Notice('No active file');
-			return;
+	private async addNote() {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (activeFile) {
+			await this.preserveNote(activeFile);
 		}
+	}
 
-		const canvasName = `${file.basename} Canvas.canvas`;
-		let canvasFile = this.app.vault.getAbstractFileByPath(canvasName) as TFile | null;
+	private async ignoreNote() {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (activeFile) {
+			await this.discardNote(activeFile);
+		}
+	}
 
-		if (!canvasFile) {
-			canvasFile = await this.createCanvasFile(canvasName);
-			if (!canvasFile) {
-				new Notice('Failed to create canvas file');
-				return;
+	private async preserveNote(file: TFile) {
+		if (!this.preservedNotes.includes(file)) {
+			this.preservedNotes.push(file);
+
+			const linkedFiles = await this.getLinksAndBacklinks(file);
+			for (const linkedFile of linkedFiles) {
+				if (!this.stack.includes(linkedFile) && !this.preservedNotes.includes(linkedFile)) {
+					this.stack.push(linkedFile);
+				}
 			}
-
-			const contentUntilSecondTitle = await this.getContentUntilSecondTitle(file);
-			const size = this.calculateTextHeight(contentUntilSecondTitle);
-
-			const backlinks = this.getLinks(file, 'backlinks');
-			const forwardLinks = this.getLinks(file, 'forwardLinks');
-
-			const backNodesResult = await this.createLinkNodes(backlinks, -600, 0);
-			const forwardNodesResult = await this.createLinkNodes(forwardLinks, 600, 0);
-
-			const backNodes = backNodesResult.nodes;
-			const backTotalHeight = backNodesResult.totalHeight;
-			const forwardNodes = forwardNodesResult.nodes;
-			const forwardTotalHeight = forwardNodesResult.totalHeight;
-
-			const spacing = 50; // Espace entre les nœuds
-			const backYOffset = (backTotalHeight + (backlinks.length - 1) * spacing) / backlinks.length;
-			const forwardYOffset = (forwardTotalHeight + (forwardLinks.length - 1) * spacing) / forwardLinks.length;
-
-			backNodes.forEach((node: any, index: number) => {
-				node.y = index * backYOffset;
-			});
-
-			forwardNodes.forEach((node: any, index: number) => {
-				node.y = index * forwardYOffset;
-			});
-
-			const canvasData = {
-				nodes: [
-					this.createNode("1", 0, 0, 400, size, file.path),
-					...backNodes,
-					...forwardNodes
-				],
-				edges: this.createEdges(backlinks, forwardLinks)
-			};
-
-			await this.app.vault.modify(canvasFile, JSON.stringify(canvasData));
 		}
-
-		this.openCanvasFile(canvasFile);
+		this.processNextNote();
 	}
 
-	getLinks(file: TFile, type: 'backlinks' | 'forwardLinks'): TFile[] {
-		if (type === 'backlinks') {
-			const resolvedLinks = this.app.metadataCache.resolvedLinks;
-			return Object.entries(resolvedLinks)
-				.filter(([_, targetLinks]) => targetLinks[file.path])
-				.map(([sourcePath]) => this.app.vault.getAbstractFileByPath(sourcePath))
-				.filter((file): file is TFile => file instanceof TFile);
-		} else {
-			const links = this.app.metadataCache.getFileCache(file)?.links || [];
-			return links.map(link => this.app.metadataCache.getFirstLinkpathDest(link.link, file.path))
-				.filter((file): file is TFile => file instanceof TFile);
-		}
+	private async discardNote(file: TFile) {
+		this.processNextNote();
 	}
 
-	async createLinkNodes(links: TFile[], baseX: number, baseY: number): Promise<{ nodes: any[], totalHeight: number }> {
-		const nodes = await Promise.all(links.map(async (link, index) => {
-			const content = await this.getContentUntilSecondTitle(link);
-			const height = this.calculateTextHeight(content);
-			return this.createNode(`link-${baseX > 0 ? 'forward' : 'back'}-${index + 2}`, baseX, baseY + index * 150, 400, height, link.path);
-		}));
+	private async getLinksAndBacklinks(file: TFile): Promise<TFile[]> {
+		const linkedFiles: TFile[] = [];
+		const links = this.app.metadataCache.getFileCache(file)?.links || [];
+		const backlinks = this.app.metadataCache.getBacklinksForFile(file);
 
-		const totalHeight = nodes.reduce((sum, node) => sum + node.height, 0);
-		return { nodes, totalHeight };
-	}
-
-	createEdges(backlinks: TFile[], forwardLinks: TFile[]): { id: string, fromNode: string, fromSide: string, toNode: string, toSide: string }[] {
-		const createEdge = (id: string, fromNode: string, fromSide: string, toNode: string, toSide: string) => ({ id, fromNode, fromSide, toNode, toSide });
-
-		return [
-			...backlinks.map((_, index) => createEdge(`edge-back-${index + 1}`, `link-back-${index + 2}`, "right", "1", "left")),
-			...forwardLinks.map((_, index) => createEdge(`edge-forward-${index + 1}`, "1", "right", `link-forward-${index + 2}`, "left"))
-		];
-	}
-
-	async createCanvasFile(fileName: string): Promise<TFile | null> {
-		try {
-			return await this.app.vault.create(fileName, '');
-		} catch (error) {
-			console.error('Error creating canvas file:', error);
-			return null;
-		}
-	}
-
-	async openCanvasFile(file: TFile) {
-		const leaf = this.app.workspace.getLeaf(false);
-		if (leaf) {
-			await leaf.openFile(file);
-		} else {
-			console.error('No active leaf');
-		}
-	}
-
-	async getContentUntilSecondTitle(file: TFile): Promise<string> {
-		const content = await this.app.vault.read(file);
-		const lines = content.split('\n');
-		let result = '';
-		let titleCount = 0;
-
-		for (const line of lines) {
-			if (line.startsWith('#')) {
-				titleCount++;
-				if (titleCount === 2) break;
+		for (const link of links) {
+			const linkedFilePath = this.app.metadataCache.getFirstLinkpathDest(link.link, file.path);
+			if (linkedFilePath) {
+				const linkedFile = this.app.vault.getAbstractFileByPath(linkedFilePath.path);
+				if (linkedFile instanceof TFile) {
+					linkedFiles.push(linkedFile);
+				}
 			}
-			result += line + '\n';
 		}
 
-		return result.trim();
+		for (const backlink of Object.keys(backlinks.data)) {
+			const backlinkFile = this.app.vault.getAbstractFileByPath(backlink);
+			if (backlinkFile instanceof TFile) {
+				linkedFiles.push(backlinkFile);
+			}
+		}
+
+		return linkedFiles;
 	}
 
-	calculateTextHeight(text: string): number {
-		const numberOfLines = text.split('\n').length;
-		return numberOfLines * 50; // Assuming 50 pixels per line
+	private async processNextNote() {
+		if (this.stack.length > 0) {
+			const nextFile = this.stack.shift();
+			if (nextFile) {
+				await this.app.workspace.getLeaf().openFile(nextFile);
+			}
+		} else {
+			const fileName = await this.getFileNameFromModal();
+			if (fileName) {
+				await this.createAndDisplayCanvas(fileName, this.app.workspace.getLeaf());
+			}
+			this.resetPlugin();
+		}
 	}
 
-	createNode(id: string, x: number, y: number, width: number, height: number, filePath: string) {
-		return { id, x, y, width, height, type: "file", file: filePath };
+	private async getFileNameFromModal(): Promise<string | null> {
+		return new Promise((resolve) => {
+			new FileNameModal(this.app, resolve).open();
+		});
+	}
+
+	private async createAndDisplayCanvas(fileName: string, leaf: WorkspaceLeaf) {
+		const canvasContent = this.generateCanvasContent();
+		const fullFileName = `${fileName}.canvas`;
+		const canvasFile = await this.app.vault.create(fullFileName, canvasContent);
+		await leaf.openFile(canvasFile);
+	}
+
+	private generateCanvasContent(): string {
+		const nodes: string[] = [];
+		const edges: string[] = [];
+		this.preservedNotes.forEach((file, index) => {
+			nodes.push(`
+				{
+					"id": "node-${index}",
+					"x": ${index * 420},
+					"y": 0,
+					"width": 400,
+					"height": 600,
+					"type": "file",
+					"file": "${file.path}"
+				}`);
+		});
+		return `{
+			"nodes":[${nodes.join(',')}],
+			"edges":[${edges.join(',')}]
+		}`;
+	}
+
+	private resetPlugin() {
+		this.stack = [];
+		this.preservedNotes = [];
+	}
+}
+
+class FileNameModal extends Modal {
+	private resolve: (value: string | null) => void;
+	private input: TextComponent;
+
+	constructor(app: App, resolve: (value: string | null) => void) {
+		super(app);
+		this.resolve = resolve;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl('h2', { text: 'Enter the file name' });
+
+		this.input = new TextComponent(contentEl);
+		this.input.inputEl.style.width = '100%';
+		this.input.inputEl.focus();
+
+		this.input.inputEl.addEventListener('keydown', (event: KeyboardEvent) => {
+			if (event.key === 'Enter') {
+				this.submitFileName();
+			}
+		});
+
+		const buttonContainer = contentEl.createDiv();
+		buttonContainer.style.display = 'flex';
+		buttonContainer.style.justifyContent = 'space-between';
+		buttonContainer.style.marginTop = '1rem';
+
+		const submitButton = new ButtonComponent(buttonContainer);
+		submitButton.setButtonText('Submit').onClick(() => this.submitFileName());
+
+		const cancelButton = new ButtonComponent(buttonContainer);
+		cancelButton.setButtonText('Cancel').onClick(() => {
+			this.resolve(null);
+			this.close();
+		});
+	}
+
+	private submitFileName() {
+		const fileName = this.input.getValue().trim();
+		if (fileName) {
+			this.resolve(fileName);
+			this.close();
+		} else {
+			new Notice('File name cannot be empty');
+		}
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
 	}
 }
