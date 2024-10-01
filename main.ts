@@ -5,13 +5,15 @@ interface MyPluginSettings {
 	nodeWidth: number;
 	nodeHeight: number;
 	sortProperty: string;
+	excludedSections: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	canvasFolder: '',
 	nodeWidth: 400,
 	nodeHeight: 600,
-	sortProperty: 'created_at'
+	sortProperty: 'created_at',
+	excludedSections: ''
 }
 
 class MyPluginSettingTab extends PluginSettingTab {
@@ -74,6 +76,17 @@ class MyPluginSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.sortProperty)
 				.onChange(async (value) => {
 					this.plugin.settings.sortProperty = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Excluded Sections')
+			.setDesc('Specify section titles to exclude from concatenation (comma-separated)')
+			.addText(text => text
+				.setPlaceholder('e.g. Do not include, Private notes')
+				.setValue(this.plugin.settings.excludedSections)
+				.onChange(async (value) => {
+					this.plugin.settings.excludedSections = value;
 					await this.plugin.saveSettings();
 				}));
 	}
@@ -238,30 +251,79 @@ export default class MyPlugin extends Plugin {
 		const spacingX = 40;
 		const spacingY = 40;
 
-		// Calculer le nombre de connexions pour chaque nœud
+		// Calculer le nombre de connexions pour chaque note
 		const connectionCounts = new Map<TFile, number>();
 		for (const file of this.preservedNotes) {
 			const linkedFiles = await this.getLinksAndBacklinks(file);
 			connectionCounts.set(file, linkedFiles.length);
 		}
 
-		// Trier les notes par nombre de connexions
+		// Trier les notes en fonction de la propriété spécifiée ou de la date de création
 		const sortedNotes = this.preservedNotes.sort((a, b) => {
-			return (connectionCounts.get(b) || 0) - (connectionCounts.get(a) || 0);
+			const valueA = this.getPropertyValue(a, this.settings.sortProperty);
+			const valueB = this.getPropertyValue(b, this.settings.sortProperty);
+			return valueA < valueB ? -1 : valueA > valueB ? 1 : 0;
 		});
+
+		// Trier les notes par nombre de connexions pour attribuer les couleurs
+		const notesByConnections = [...this.preservedNotes].sort((a, b) =>
+			(connectionCounts.get(b) || 0) - (connectionCounts.get(a) || 0)
+		);
 
 		// Définir les couleurs pour chaque percentile
 		const colors = ['#FF0000', '#FFA500', '#FFFF00', '#8A2BE2', '#0000FF'];
-		const getColorForIndex = (index: number) => {
-			const percentile = index / sortedNotes.length;
+		const getColorForNote = (file: TFile) => {
+			const index = notesByConnections.indexOf(file);
+			const percentile = index / notesByConnections.length;
 			const colorIndex = Math.min(Math.floor(percentile * 5), 4);
 			return colors[colorIndex];
+		};
+
+		// Préparation des sections à exclure
+		const excludedSections = this.settings.excludedSections
+			.split(',')
+			.map(section => section.trim())
+			.filter(section => section.length > 0);
+
+		// Fonction pour exclure les sections
+		const excludeSections = (content: string): string => {
+			const lines = content.split('\n');
+			let result = '';
+			let excluding = false;
+			let currentLevel = 0;
+
+			for (const line of lines) {
+				const match = line.match(/^(#{1,6})\s+(.+)$/);
+				if (match) {
+					const level = match[1].length;
+					const title = match[2];
+
+					if (excludedSections.includes(title)) {
+						excluding = true;
+						currentLevel = level;
+					} else if (level <= currentLevel) {
+						excluding = false;
+					}
+				}
+
+				if (!excluding) {
+					result += line + '\n';
+				}
+			}
+
+			return result.trim();
 		};
 
 		// Concaténation du contenu des notes
 		let concatenatedContent = '';
 		for (const file of sortedNotes) {
-			const content = await this.readFileContent(file);
+			let content = await this.readFileContent(file);
+
+			// Suppression des sections exclues et de leur contenu
+			if (excludedSections.length > 0) {
+				content = excludeSections(content);
+			}
+
 			concatenatedContent += `--- ${file.name} ---\n${content}\n\n`;
 		}
 
@@ -269,7 +331,7 @@ export default class MyPlugin extends Plugin {
 		sortedNotes.forEach((file, index) => {
 			const x = (index % columns) * (nodeWidth + spacingX);
 			const y = Math.floor(index / columns) * (nodeHeight + spacingY);
-			const color = getColorForIndex(index);
+			const color = getColorForNote(file);
 			nodes.push(`
         {
             "id": "node-${index}",
