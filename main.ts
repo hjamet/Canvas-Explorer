@@ -4,12 +4,14 @@ interface MyPluginSettings {
 	canvasFolder: string;
 	nodeWidth: number;
 	nodeHeight: number;
+	sortProperty: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	canvasFolder: '',
 	nodeWidth: 400,
-	nodeHeight: 600
+	nodeHeight: 600,
+	sortProperty: 'created_at'
 }
 
 class MyPluginSettingTab extends PluginSettingTab {
@@ -26,10 +28,10 @@ class MyPluginSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Dossier Canvas')
-			.setDesc('Sélectionnez le dossier où enregistrer les canvas')
+			.setName('Canvas Folder')
+			.setDesc('Select the folder to save canvases')
 			.addText(text => text
-				.setPlaceholder('Exemple: Dossier/Sous-dossier')
+				.setPlaceholder('Example: Folder/Subfolder')
 				.setValue(this.plugin.settings.canvasFolder)
 				.onChange(async (value) => {
 					this.plugin.settings.canvasFolder = value;
@@ -37,8 +39,8 @@ class MyPluginSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Largeur des nœuds')
-			.setDesc('Spécifiez la largeur des nœuds dans le canvas (en pixels)')
+			.setName('Node Width')
+			.setDesc('Specify the width of nodes in the canvas (in pixels)')
 			.addText(text => text
 				.setPlaceholder('400')
 				.setValue(String(this.plugin.settings.nodeWidth))
@@ -51,8 +53,8 @@ class MyPluginSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Hauteur des nœuds')
-			.setDesc('Spécifiez la hauteur des nœuds dans le canvas (en pixels)')
+			.setName('Node Height')
+			.setDesc('Specify the height of nodes in the canvas (in pixels)')
 			.addText(text => text
 				.setPlaceholder('600')
 				.setValue(String(this.plugin.settings.nodeHeight))
@@ -62,6 +64,17 @@ class MyPluginSettingTab extends PluginSettingTab {
 						this.plugin.settings.nodeHeight = numValue;
 						await this.plugin.saveSettings();
 					}
+				}));
+
+		new Setting(containerEl)
+			.setName('Sort Property')
+			.setDesc('Specify the frontmatter property to use for sorting notes. If left empty or property not found, file creation date will be used.')
+			.addText(text => text
+				.setPlaceholder('e.g. created_at')
+				.setValue(this.plugin.settings.sortProperty)
+				.onChange(async (value) => {
+					this.plugin.settings.sortProperty = value;
+					await this.plugin.saveSettings();
 				}));
 	}
 }
@@ -77,14 +90,14 @@ export default class MyPlugin extends Plugin {
 		this.addSettingTab(new MyPluginSettingTab(this.app, this));
 
 		this.addCommand({
-			id: 'ajouter-note',
-			name: 'Ajouter Note',
+			id: 'add-note',
+			name: 'Add Note',
 			callback: () => this.addNote(),
 		});
 
 		this.addCommand({
-			id: 'ignorer-note',
-			name: 'Ignorer Note',
+			id: 'ignore-note',
+			name: 'Ignore Note',
 			callback: () => this.ignoreNote(),
 		});
 	}
@@ -122,7 +135,7 @@ export default class MyPlugin extends Plugin {
 				}
 			}
 		}
-		new Notice(`Il reste ${this.stack.length} notes à traiter.`);
+		new Notice(`${this.stack.length} notes left to process.`);
 		this.processNextNote();
 	}
 
@@ -177,22 +190,22 @@ export default class MyPlugin extends Plugin {
 	}
 
 	private async createAndDisplayCanvas(fileName: string, leaf: WorkspaceLeaf) {
-		const canvasContent = this.generateCanvasContent();
+		const canvasContent = await this.generateCanvasContent();
 		const fullFileName = `${fileName}.canvas`;
 		let filePath = fullFileName;
 
 		if (this.settings.canvasFolder) {
 			filePath = `${this.settings.canvasFolder}/${fullFileName}`;
 
-			// Vérifier si le dossier existe
+			// Check if the folder exists
 			const folderExists = await this.app.vault.adapter.exists(this.settings.canvasFolder);
 
-			// Si le dossier n'existe pas, le créer
+			// If the folder doesn't exist, create it
 			if (!folderExists) {
 				try {
 					await this.app.vault.adapter.mkdir(this.settings.canvasFolder);
 				} catch (error) {
-					new Notice(`Erreur lors de la création du dossier : ${error.message}`);
+					new Notice(`Error creating folder: ${error.message}`);
 					return;
 				}
 			}
@@ -202,11 +215,20 @@ export default class MyPlugin extends Plugin {
 			const canvasFile = await this.app.vault.create(filePath, canvasContent);
 			await leaf.openFile(canvasFile);
 		} catch (error) {
-			new Notice(`Erreur lors de la création du canvas : ${error.message}`);
+			new Notice(`Error creating canvas: ${error.message}`);
 		}
 	}
 
-	private generateCanvasContent(): string {
+	private async readFileContent(file: TFile): Promise<string> {
+		try {
+			return await this.app.vault.read(file);
+		} catch (error) {
+			console.error(`Erreur lors de la lecture du fichier ${file.path}:`, error);
+			return '';
+		}
+	}
+
+	private async generateCanvasContent(): Promise<string> {
 		const nodes: string[] = [];
 		const edges: string[] = [];
 		const noteCount = this.preservedNotes.length;
@@ -216,9 +238,38 @@ export default class MyPlugin extends Plugin {
 		const spacingX = 40;
 		const spacingY = 40;
 
-		this.preservedNotes.forEach((file, index) => {
+		// Calculer le nombre de connexions pour chaque nœud
+		const connectionCounts = new Map<TFile, number>();
+		for (const file of this.preservedNotes) {
+			const linkedFiles = await this.getLinksAndBacklinks(file);
+			connectionCounts.set(file, linkedFiles.length);
+		}
+
+		// Trier les notes par nombre de connexions
+		const sortedNotes = this.preservedNotes.sort((a, b) => {
+			return (connectionCounts.get(b) || 0) - (connectionCounts.get(a) || 0);
+		});
+
+		// Définir les couleurs pour chaque percentile
+		const colors = ['#FF0000', '#FFA500', '#FFFF00', '#8A2BE2', '#0000FF'];
+		const getColorForIndex = (index: number) => {
+			const percentile = index / sortedNotes.length;
+			const colorIndex = Math.min(Math.floor(percentile * 5), 4);
+			return colors[colorIndex];
+		};
+
+		// Concaténation du contenu des notes
+		let concatenatedContent = '';
+		for (const file of sortedNotes) {
+			const content = await this.readFileContent(file);
+			concatenatedContent += `--- ${file.name} ---\n${content}\n\n`;
+		}
+
+		// Création des nœuds pour chaque note
+		sortedNotes.forEach((file, index) => {
 			const x = (index % columns) * (nodeWidth + spacingX);
 			const y = Math.floor(index / columns) * (nodeHeight + spacingY);
+			const color = getColorForIndex(index);
 			nodes.push(`
         {
             "id": "node-${index}",
@@ -227,14 +278,55 @@ export default class MyPlugin extends Plugin {
             "width": ${nodeWidth},
             "height": ${nodeHeight},
             "type": "file",
-            "file": "${file.path}"
+            "file": "${file.path}",
+            "color": "${color}"
         }`);
 		});
+
+		// Création du nœud pour le contenu concaténé
+		const concatenatedNodeX = (columns + 1) * (nodeWidth + spacingX);
+		const concatenatedNodeY = 0;
+		const concatenatedNodeWidth = nodeWidth * 2 + spacingX;
+		const concatenatedNodeHeight = nodeHeight * 2 + spacingY;
+
+		nodes.push(`
+      {
+        "id": "node-concatenated",
+        "x": ${concatenatedNodeX},
+        "y": ${concatenatedNodeY},
+        "width": ${concatenatedNodeWidth},
+        "height": ${concatenatedNodeHeight},
+        "type": "text",
+        "text": ${JSON.stringify(concatenatedContent)},
+        "color": "#00FF00"
+      }`);
 
 		return `{
     "nodes":[${nodes.join(',')}],
     "edges":[${edges.join(',')}]
 }`;
+	}
+
+	/**
+	 * Get the creation date of a file from its frontmatter.
+	 * @param {TFile} file - The file to get the creation date from.
+	 * @return {Date} The creation date of the file.
+	 */
+	private getCreationDate(file: TFile): Date {
+		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		const createdAt = frontmatter?.created_at;
+		return createdAt ? new Date(createdAt) : new Date(0);
+	}
+
+	/**
+	 * Get the value of a specified property from a file's frontmatter or its creation date.
+	 * @param {TFile} file - The file to get the property from.
+	 * @param {string} property - The name of the property to retrieve.
+	 * @return {any} The value of the property, or the file's creation date if not found.
+	 */
+	private getPropertyValue(file: TFile, property: string): any {
+		const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		return frontmatter?.[property] ?? file.stat.ctime;
 	}
 
 	private resetPlugin() {
