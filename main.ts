@@ -171,10 +171,14 @@ export default class MyPlugin extends Plugin {
 			}
 		}
 
-		for (const backlink of Object.keys(backlinks.data)) {
-			const backlinkFile = this.app.vault.getAbstractFileByPath(backlink);
-			if (backlinkFile instanceof TFile) {
-				linkedFiles.push(backlinkFile);
+		// Correction pour itérer sur les backlinks
+		if (backlinks && backlinks.data) {
+			const backlinkData = backlinks.data as unknown as Map<string, any>;
+			for (const backlinkPath of backlinkData.keys()) {
+				const backlinkFile = this.app.vault.getAbstractFileByPath(backlinkPath);
+				if (backlinkFile instanceof TFile) {
+					linkedFiles.push(backlinkFile);
+				}
 			}
 		}
 
