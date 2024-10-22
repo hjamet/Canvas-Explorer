@@ -123,6 +123,9 @@ export default class MyPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
+	/**
+	 * Adds the active file to the preserved notes.
+	 */
 	private async addNote() {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (activeFile) {
@@ -130,6 +133,9 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Ignores the active file and processes the next note.
+	 */
 	private async ignoreNote() {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (activeFile) {
@@ -137,6 +143,10 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Preserves a note and processes its links.
+	 * @param {TFile} file - The file to preserve.
+	 */
 	private async preserveNote(file: TFile) {
 		if (!this.preservedNotes.includes(file)) {
 			this.preservedNotes.push(file);
@@ -152,10 +162,19 @@ export default class MyPlugin extends Plugin {
 		this.processNextNote();
 	}
 
+	/**
+	 * Discards a note and processes the next one.
+	 * @param {TFile} file - The file to discard.
+	 */
 	private async discardNote(file: TFile) {
 		this.processNextNote();
 	}
 
+	/**
+	 * Gets all links and backlinks for a given file.
+	 * @param {TFile} file - The file to get links for.
+	 * @returns {Promise<TFile[]>} A promise that resolves to an array of linked files.
+	 */
 	private async getLinksAndBacklinks(file: TFile): Promise<TFile[]> {
 		const linkedFiles: TFile[] = [];
 		const links = this.app.metadataCache.getFileCache(file)?.links || [];
@@ -171,7 +190,7 @@ export default class MyPlugin extends Plugin {
 			}
 		}
 
-		// Correction pour itérer sur les backlinks
+		// Iterate over backlinks
 		if (backlinks && backlinks.data) {
 			const backlinkData = backlinks.data as unknown as Map<string, any>;
 			for (const backlinkPath of backlinkData.keys()) {
@@ -185,6 +204,9 @@ export default class MyPlugin extends Plugin {
 		return linkedFiles;
 	}
 
+	/**
+	 * Processes the next note in the stack or creates a canvas if the stack is empty.
+	 */
 	private async processNextNote() {
 		if (this.stack.length > 0) {
 			const nextFile = this.stack.shift();
@@ -200,12 +222,21 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Gets a file name from a modal dialog.
+	 * @returns {Promise<string | null>} A promise that resolves to the file name or null if cancelled.
+	 */
 	private async getFileNameFromModal(): Promise<string | null> {
 		return new Promise((resolve) => {
 			new FileNameModal(this.app, resolve).open();
 		});
 	}
 
+	/**
+	 * Creates and displays a canvas with the given file name.
+	 * @param {string} fileName - The name of the file to create.
+	 * @param {WorkspaceLeaf} leaf - The workspace leaf to display the canvas in.
+	 */
 	private async createAndDisplayCanvas(fileName: string, leaf: WorkspaceLeaf) {
 		const canvasContent = await this.generateCanvasContent();
 		const fullFileName = `${fileName}.canvas`;
@@ -236,15 +267,24 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Reads the content of a file.
+	 * @param {TFile} file - The file to read.
+	 * @returns {Promise<string>} A promise that resolves to the file content.
+	 */
 	private async readFileContent(file: TFile): Promise<string> {
 		try {
 			return await this.app.vault.read(file);
 		} catch (error) {
-			console.error(`Erreur lors de la lecture du fichier ${file.path}:`, error);
+			console.error(`Error reading file ${file.path}:`, error);
 			return '';
 		}
 	}
 
+	/**
+	 * Generates the content for the canvas.
+	 * @returns {Promise<string>} A promise that resolves to the canvas content.
+	 */
 	private async generateCanvasContent(): Promise<string> {
 		const nodes: string[] = [];
 		const edges: string[] = [];
@@ -255,26 +295,26 @@ export default class MyPlugin extends Plugin {
 		const spacingX = 40;
 		const spacingY = 40;
 
-		// Calculer le nombre de connexions pour chaque note
+		// Calculate the number of connections for each note
 		const connectionCounts = new Map<TFile, number>();
 		for (const file of this.preservedNotes) {
 			const linkedFiles = await this.getLinksAndBacklinks(file);
 			connectionCounts.set(file, linkedFiles.length);
 		}
 
-		// Trier les notes en fonction de la propriété spécifiée ou de la date de création
+		// Sort notes based on the specified property or creation date
 		const sortedNotes = this.preservedNotes.sort((a, b) => {
 			const valueA = this.getPropertyValue(a, this.settings.sortProperty);
 			const valueB = this.getPropertyValue(b, this.settings.sortProperty);
 			return valueA < valueB ? -1 : valueA > valueB ? 1 : 0;
 		});
 
-		// Trier les notes par nombre de connexions pour attribuer les couleurs
+		// Sort notes by number of connections to assign colors
 		const notesByConnections = [...this.preservedNotes].sort((a, b) =>
 			(connectionCounts.get(b) || 0) - (connectionCounts.get(a) || 0)
 		);
 
-		// Définir les couleurs pour chaque percentile
+		// Define colors for each percentile
 		const colors = ['#FF0000', '#FFA500', '#FFFF00', '#8A2BE2', '#0000FF'];
 		const getColorForNote = (file: TFile) => {
 			const index = notesByConnections.indexOf(file);
@@ -283,13 +323,13 @@ export default class MyPlugin extends Plugin {
 			return colors[colorIndex];
 		};
 
-		// Préparation des sections à exclure
+		// Prepare sections to exclude
 		const excludedSections = this.settings.excludedSections
 			.split(',')
 			.map(section => section.trim())
 			.filter(section => section.length > 0);
 
-		// Fonction pour exclure les sections
+		// Function to exclude sections
 		const excludeSections = (content: string): string => {
 			const lines = content.split('\n');
 			let result = '';
@@ -318,12 +358,12 @@ export default class MyPlugin extends Plugin {
 			return result.trim();
 		};
 
-		// Concaténation du contenu des notes
+		// Concatenate note content
 		let concatenatedContent = '';
 		for (const file of sortedNotes) {
 			let content = await this.readFileContent(file);
 
-			// Suppression des sections exclues et de leur contenu
+			// Remove excluded sections and their content
 			if (excludedSections.length > 0) {
 				content = excludeSections(content);
 			}
@@ -331,7 +371,7 @@ export default class MyPlugin extends Plugin {
 			concatenatedContent += `--- ${file.name} ---\n${content}\n\n`;
 		}
 
-		// Création des nœuds pour chaque note
+		// Create nodes for each note
 		sortedNotes.forEach((file, index) => {
 			const x = (index % columns) * (nodeWidth + spacingX);
 			const y = Math.floor(index / columns) * (nodeHeight + spacingY);
@@ -349,7 +389,7 @@ export default class MyPlugin extends Plugin {
         }`);
 		});
 
-		// Création du nœud pour le contenu concaténé
+		// Create node for concatenated content
 		const concatenatedNodeX = (columns + 1) * (nodeWidth + spacingX);
 		const concatenatedNodeY = 0;
 		const concatenatedNodeWidth = nodeWidth * 2 + spacingX;
@@ -395,6 +435,9 @@ export default class MyPlugin extends Plugin {
 		return frontmatter?.[property] ?? file.stat.ctime;
 	}
 
+	/**
+	 * Resets the plugin state.
+	 */
 	private resetPlugin() {
 		this.stack = [];
 		this.preservedNotes = [];

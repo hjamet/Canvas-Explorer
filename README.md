@@ -1,50 +1,74 @@
 # 🦉 Canvas Explorer
 
-Canvas Explorer is a plugin that enables users to explore their vault by iteratively adding or ignoring linked notes, ultimately generating a customizable canvas that visually represents the preserved notes and their connections.
+Canvas Explorer is an Obsidian plugin that allows you to explore your vault by adding or ignoring linked notes, generating a customizable canvas.
 
-## 🐘 Features
+## 🚀 Features
 
-- Add notes to a canvas exploration stack
-- Ignore notes you don't want to include
+- Add notes to an exploration stack
+- Ignore unwanted notes
 - Automatically create a canvas with preserved notes and their connections
 - Customizable node dimensions and canvas folder location
+- Sort notes based on a frontmatter property or creation date
+- Exclude specific sections from notes
+- Concatenate note content in a separate node
+- Color-code notes based on their connection count
+- Generate a summary node with concatenated content
 
-## 🦋 Installation
+## 🛠️ Installation
 
 1. Open Obsidian and go to Settings
 2. Navigate to Community Plugins and disable Safe Mode
 3. Click on Browse and search for "Canvas Explorer"
 4. Click Install and then Enable the plugin
 
-## 🦒 Usage
+## 🎮 Usage
 
-1. Open a note you want to start exploring from
-2. Use the command "Add Note" to add it to the exploration stack
-3. Navigate through suggested linked notes, using "Add Note" or "Ignore Note" commands
-4. Once you've finished exploring, the plugin will prompt you to name your canvas
+1. Open a note to start exploring
+2. Use the "Add Note" command to add it to the exploration stack
+3. Navigate through suggested linked notes using "Add Note" or "Ignore Note"
+4. Once exploration is complete, name your canvas
 5. A new canvas will be created with all preserved notes and their connections
 
-## 🦁 Commands
+## ⌨️ Commands
 
-- **Add Note**: Adds the current note to the exploration stack and suggests linked notes
-- **Ignore Note**: Skips the current note and moves to the next suggested note
+- **Add Note**: Adds the current note to the exploration stack
+- **Ignore Note**: Skips the current note and moves to the next
 
-## 🐠 Settings
+## ⚙️ Settings
 
-You can customize the following settings:
+- **Canvas Folder**: Folder to save generated canvases
+- **Node Width**: Width of note nodes in the canvas (in pixels)
+- **Node Height**: Height of note nodes in the canvas (in pixels)
+- **Sort Property**: Frontmatter property for sorting notes
+- **Excluded Sections**: Section titles to exclude from concatenation
 
-- **Canvas Folder**: Choose where to save your generated canvases
-- **Node Width**: Set the width of note nodes in the canvas (in pixels)
-- **Node Height**: Set the height of note nodes in the canvas (in pixels)
+## 🎨 Color Coding
 
-## 🦜 Support
+Notes are color-coded based on their number of connections:
+- Red: Most connected
+- Orange
+- Yellow
+- Purple
+- Blue: Least connected
 
-If you encounter any issues or have suggestions for improvements, please visit our [GitHub repository](https://github.com/yourusername/canvas-explorer) and open an issue.
+This visual cue helps identify central or highly connected notes in your knowledge graph.
 
-## 🦚 About the Author
+## 📊 Note Sorting
 
-Canvas Explorer is developed by Henri Jamet. You can find more about the author at [https://www.henri-jamet.com/](https://www.henri-jamet.com/).
+Notes are sorted based on the specified frontmatter property or creation date if not found. This allows for chronological or custom-ordered exploration of your notes.
 
-## 🐳 License
+## 📝 Concatenated Summary Node
 
-Canvas Explorer is released under the MIT License. See the LICENSE file for more details.
+A separate, larger node is created containing the concatenated content of all explored notes. This provides a comprehensive overview of the explored topic. The summary node is color-coded green for easy identification.
+
+## 🐛 Support
+
+To report issues or suggest improvements, visit our [GitHub repository](https://github.com/hjamet/Canvas-Explorer).
+
+## 👤 Author
+
+Developed by Henri Jamet. More information at [https://www.henri-jamet.com/](https://www.henri-jamet.com/).
+
+## 📄 License
+
+Canvas Explorer is under the MIT License. See the LICENSE file for more details.
