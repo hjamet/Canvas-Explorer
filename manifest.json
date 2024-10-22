@@ -1,7 +1,7 @@
 {
 	"id": "canvas-explorer",
 	"name": "Canvas Explorer",
-	"version": "1.0.7",
+	"version": "1.0.8",
 	"minAppVersion": "0.15.0",
 	"description": "Canvas Explorer is a plugin that enables users to explore their vault by iteratively adding or ignoring linked notes, ultimately generating a customizable canvas.",
 	"author": "Henri Jamet",
