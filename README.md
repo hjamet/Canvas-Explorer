@@ -2,6 +2,8 @@
 
 Canvas Explorer is an Obsidian plugin that allows you to explore your vault by adding or ignoring linked notes, generating a customizable canvas.
 
+![Canvas Explorer Demo](./assets/CanvasExplorer.gif)
+
 ## 🚀 Features
 
 - Add notes to an exploration stack
